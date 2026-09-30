@@ -1026,9 +1026,32 @@ def main():
         return False
 
     time.sleep(1)
-    checkin_result = checkin(cookie_data)
-    time.sleep(1)
-    get_user_info(cookie_data)
+    # 2026-09-30：浏览器登录时可能已在页面内完成签到，优先采用该结果，
+    # 避免 Cookie 转交 requests 后被 Cloudflare 拦截导致误报失败。
+    browser_checkin = None
+    try:
+        import browser_login as _browser_login
+        browser_checkin = getattr(_browser_login, 'LAST_BROWSER_RESULT', None)
+    except Exception:
+        pass
+
+    if browser_checkin and isinstance(browser_checkin.get('checkin'), dict):
+        cr = browser_checkin['checkin']
+        cr_msg = str(cr.get('msg', ''))
+        if cr.get('ret') == 1 or '已经签到' in cr_msg or '已签到' in cr_msg:
+            print_with_time(f"✅ 浏览器内签到已完成: {cr_msg}", "SUCCESS")
+            checkin_result = True
+            time.sleep(1)
+            get_user_info(cookie_data)
+        else:
+            print_with_time(f"浏览器内签到未成功({cr_msg})，走 requests 路径重试...", "WARNING")
+            checkin_result = checkin(cookie_data)
+            time.sleep(1)
+            get_user_info(cookie_data)
+    else:
+        checkin_result = checkin(cookie_data)
+        time.sleep(1)
+        get_user_info(cookie_data)
 
     elapsed = round(time.time() - start_time, 2)
     print_separator("=", 60)

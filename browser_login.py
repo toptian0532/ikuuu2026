@@ -6,6 +6,7 @@ Reason: 站点 Geetest 为 captcha_type=ai 的自适应一键验证，真实浏�
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime
 from typing import Optional
@@ -28,6 +29,9 @@ def print_with_time(message, level="INFO"):
 
 # 会话 Cookie 关键字段（SSPanel）
 SESSION_COOKIE_NAMES = ("uid", "email", "key", "ip", "expire_in", "PHPSESSID")
+
+# 浏览器内签到的结果（login_with_browser 成功后填充，供 main.py 读取）
+LAST_BROWSER_RESULT = None
 
 
 def _import_playwright():
@@ -253,14 +257,47 @@ def login_with_browser(
                 return None
 
             cookie = _cookie_header_from_context(context, base_url)
-            browser.close()
-            browser = None
 
             if not cookie or "uid=" not in cookie.lower():
                 print_with_time(f"登录后 Cookie 不完整: {cookie[:80]}...", "ERROR")
+                browser.close()
                 return None
 
             print_with_time("浏览器登录成功（免费过 Geetest）", "SUCCESS")
+
+            # 2026-09-30：在浏览器会话内直接签到（同源 fetch），
+            # 彻底规避 Cookie 转交 requests 后被 Cloudflare 拦截的问题。
+            global LAST_BROWSER_RESULT
+            try:
+                checkin_result = page.evaluate(
+                    """async () => {
+                        try {
+                            const r = await fetch('/user/checkin', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: {
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                    'Accept': 'application/json, text/javascript, */*; q=0.01',
+                                },
+                            });
+                            const text = await r.text();
+                            try { return JSON.parse(text); }
+                            catch (e) { return {ret: -1, msg: '非JSON响应: ' + text.slice(0, 100)}; }
+                        } catch (e) {
+                            return {ret: -1, msg: 'fetch 失败: ' + e.message};
+                        }
+                    }"""
+                )
+                LAST_BROWSER_RESULT = {"checkin": checkin_result}
+                print_with_time(
+                    f"浏览器内签到结果: {json.dumps(checkin_result, ensure_ascii=False)}"
+                )
+            except Exception as e:
+                LAST_BROWSER_RESULT = None
+                print_with_time(f"浏览器内签到异常（后续走 requests 路径）: {e}", "WARNING")
+
+            browser.close()
+            browser = None
             return cookie
     except ImportError as e:
         print_with_time(str(e), "ERROR")
