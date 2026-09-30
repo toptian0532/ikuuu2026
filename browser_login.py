@@ -91,15 +91,16 @@ def _cookie_header_from_context(context, base_url: str) -> str:
                 continue
             parts.append(f"{name}={c.get('value', '')}")
             seen.add(name)
-    if not parts:
-        # 兜底：凡域名含 ikuuu 的 cookie 都带上
-        for c in cookies:
-            domain = c.get("domain") or ""
-            if "ikuuu" in domain or (host and host in domain):
-                n = c.get("name")
-                if n and n not in seen:
-                    parts.append(f"{n}={c.get('value', '')}")
-                    seen.add(n)
+    # 2026-09-30 修复：站点在 Cloudflare 后面，浏览器会拿到 cf_clearance 等
+    # 防 Bot Cookie，且服务端校验与 UA 绑定。白名单外的 Cookie 也必须带上，
+    # 否则转交 requests 后会被打回登录页（实测跳转 /auth/login）。
+    for c in cookies:
+        domain = c.get("domain") or ""
+        if "ikuuu" in domain or (host and host in domain):
+            n = c.get("name")
+            if n and n not in seen:
+                parts.append(f"{n}={c.get('value', '')}")
+                seen.add(n)
     return "; ".join(parts)
 
 
@@ -191,10 +192,13 @@ def login_with_browser(
             context = browser.new_context(
                 locale="zh-CN",
                 viewport={"width": 1280, "height": 800},
+                # Reason: UA 必须与 main.py create_session 的 UA 完全一致，
+                # Cloudflare 的 cf_clearance 与 UA 绑定，不一致会导致
+                # 提取的 Cookie 在后续 requests 中失效。
                 user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/138.0.0.0 Safari/537.36"
+                    "Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0"
                 ),
             )
             # Reason: 降低自动化指纹，Geetest 对 webdriver 更敏感
