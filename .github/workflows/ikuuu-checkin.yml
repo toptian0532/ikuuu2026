@@ -36,20 +36,38 @@ jobs:
         pip list | grep -E "requests|beautifulsoup4|brotli|urllib3|playwright"
 
     - name: 执行签到
-      env:
-        # 推荐：仅邮箱+密码，Playwright 免费点击 Geetest，无需打码
-        IKUUU_EMAIL: ${{ secrets.IKUUU_EMAIL }}
-        IKUUU_PASSWORD: ${{ secrets.IKUUU_PASSWORD }}
-        # 可选备用：打码平台 / 手工 Cookie / 强制域名
-        CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
-        YESCAPTCHA_API_KEY: ${{ secrets.YESCAPTCHA_API_KEY }}
-        CAPTCHA_PROVIDER: ${{ secrets.CAPTCHA_PROVIDER }}
-        IKUUU_DOMAIN: ${{ secrets.IKUUU_DOMAIN }}
-        IKUUU_COOKIE: ${{ secrets.IKUUU_COOKIE }}
-        IKUUU_USE_BROWSER_LOGIN: ${{ secrets.IKUUU_USE_BROWSER_LOGIN }}
       run: |
-        echo "🚀 开始执行 IKUUU 自动签到..."
-        python main.py
+        set -o pipefail
+        SUCCESS=0
+        for i in 1 2 3; do
+          echo "===== 第 $i/3 次签到尝试 $(date '+%H:%M:%S') ====="
+          if python main.py 2>&1 | tee "checkin_log_$i.txt"; then
+            SUCCESS=1
+            echo "✅ 第 $i 次尝试成功"
+            break
+          fi
+          echo "⚠️ 第 $i 次尝试失败"
+          # Reason: Geetest/Cloudflare 对 GitHub Actions IP 存在间歇性动态风控，
+          # 瞬时失败通常等待后重试即可恢复，递增等待降低连续被拦概率
+          if [ "$i" -lt 3 ]; then
+            WAIT=$((i * 45))
+            echo "等待 ${WAIT}s 后重试..."
+            sleep $WAIT
+          fi
+        done
+        if [ "$SUCCESS" -ne 1 ]; then
+          echo "❌ 连续 3 次签到均失败"
+          exit 1
+        fi
+
+    - name: 上传签到日志
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: checkin-logs
+        path: checkin_log_*.txt
+        retention-days: 7
+        if-no-files-found: ignore
 
     - name: 更新域名缓存
       if: success()
@@ -67,9 +85,22 @@ jobs:
     - name: 签到结果通知
       if: always()
       run: |
-        if [ $? -eq 0 ]; then
+        if [ "${{ job.status }}" = "success" ]; then
           echo "✅ 签到成功！"
         else
-          echo "❌ 签到失败，请查看日志"
+          # Reason: 原实现用 $? 判断的是上一步（更新域名缓存）而非签到本身，已改为 job.status
+          echo "❌ 签到失败，日志尾部如下："
+          LAST_LOG=$(ls -t checkin_log_*.txt 2>/dev/null | head -1)
+          if [ -n "$LAST_LOG" ]; then
+            {
+              echo ""
+              echo "### ❌ 签到失败（最后一次尝试日志尾部 60 行：$LAST_LOG）"
+              echo '```'
+              tail -n 60 "$LAST_LOG"
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "未找到签到日志文件（可能在依赖安装阶段即失败）"
+          fi
           exit 1
         fi

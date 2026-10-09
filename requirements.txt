@@ -2,4 +2,7 @@ requests>=2.31.0
 beautifulsoup4>=4.12.0
 urllib3>=2.0.0
 brotli>=1.1.0
-playwright>=1.40.0
+# Reason: 锁定已验证可用的 playwright 版本（1.63.0 于 2026-09-15 发布，
+# 10/01-10/08 签到连续成功）。避免未来新版本发布后 Chromium 行为漂移导致
+# Geetest 过验证失败且难以归因。升级前请先在本地验证。
+playwright==1.63.0
