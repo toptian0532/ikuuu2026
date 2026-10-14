@@ -36,6 +36,13 @@ jobs:
         pip list | grep -E "requests|beautifulsoup4|brotli|urllib3|playwright"
 
     - name: 执行签到
+      env:
+        IKUUU_EMAIL: ${{ secrets.IKUUU_EMAIL }}
+        IKUUU_PASSWORD: ${{ secrets.IKUUU_PASSWORD }}
+        IKUUU_COOKIE: ${{ secrets.IKUUU_COOKIE }}
+        CAPSOLVER_API_KEY: ${{ secrets.CAPSOLVER_API_KEY }}
+        YESCAPTCHA_API_KEY: ${{ secrets.YESCAPTCHA_API_KEY }}
+        CAPTCHA_PROVIDER: ${{ secrets.CAPTCHA_PROVIDER }}
       run: |
         set -o pipefail
         SUCCESS=0
